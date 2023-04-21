@@ -121,32 +121,9 @@ vec4 sdfSphere(vec3 p,vec3 c,float r,vec3 color){
     return vec4(length(p-c)-r,color);
 }
 
-// vec4 sdfCylinder(vec3 p,vec3 center,float r,float h,vec3 color){
-    //     float c=6.;
-    //     p=p-center;
-    //     p.xz=mod(p.xz+.5*c,c)-.5*c;
-    //     vec2 d=abs(vec2(length(p.xz),p.y))-vec2(r,h*.5);
-    //     return vec4(min(max(d.x,d.y),0.)+length(max(d,0.)),color);
-// }
-
 float random(vec2 st){
     return fract(sin(dot(st.xy,vec2(12.9898,78.233)))*43758.5453123);
 }
-
-// vec4 sdfCylinder(vec3 p,vec3 center,float r,float minHeight,float maxHeight,vec3 color){
-    //     float c=7.;
-    //     vec3 centered_p=p-center;
-    
-    //     ivec2 cellIndex=ivec2(floor((centered_p.xz+.5*c)/c));
-    //     vec2 rep_p_xz=mod(centered_p.xz+.5*c,c)-.5*c;
-    
-    //     // Calculate the random height for the current cylinder
-    //     float randomHeight=mix(minHeight,maxHeight,random(vec2(cellIndex)));
-    
-    //     centered_p.xz=rep_p_xz;
-    //     vec2 d=abs(vec2(length(centered_p.xz),centered_p.y))-vec2(r,randomHeight*.5);
-    //     return vec4(min(max(d.x,d.y),0.)+length(max(d,0.)),color);
-// }
 
 vec4 sdfCylinder(vec3 p,vec3 center,float r,float minHeight,float maxHeight,vec3 color){
     float c=7.;
@@ -175,27 +152,6 @@ vec4 sdfCylinder(vec3 p,vec3 center,float r,float minHeight,float maxHeight,vec3
     return vec4(min(max(d.x,d.y),0.)+length(max(d,0.)),color);
 }
 
-// vec4 sdfCylinder(vec3 p,vec3 center,float r,float minHeight,float maxHeight,vec3 color1,vec3 color2){
-    //     float c=7.;
-    //     vec3 centered_p=p-center;
-    
-    //     ivec2 cellIndex=ivec2(floor((centered_p.xz+.5*c)/c));
-    //     vec2 rep_p_xz=mod(centered_p.xz+.5*c,c)-.5*c;
-    
-    //     // Calculate the random height for the current cylinder
-    //     float randomHeight=mix(minHeight,maxHeight,random(vec2(cellIndex)));
-    
-    //     centered_p.xz=rep_p_xz;
-    
-    //     vec2 d=abs(vec2(length(vec2(centered_p.x,centered_p.z)),centered_p.y))-vec2(r,randomHeight*.5);
-    
-    //     // Calculate noise value and use it to blend two colors and create a texture
-    //     float noiseValue=perlinNoise(centered_p.xz*5.);
-    //     vec3 blendedColor=mix(color1,color2,noiseValue);
-    
-    //     return vec4(min(max(d.x,d.y),0.)+length(max(d,0.)),blendedColor);
-// }
-
 vec4 minWithColor(vec4 a,vec4 b){
     if(a.x<b.x){
         return a;
@@ -211,11 +167,73 @@ vec3 movingSpherePosition(float time){
     return vec3(x,y,z);
 }
 
+// SDF cylinder for the tree trunk
+vec4 sdfTreeTrunk(vec3 p,vec3 center,float r,float h,vec3 color){
+    vec3 centered_p=p-center;
+    vec2 d=abs(vec2(length(centered_p.xz),centered_p.y))-vec2(r,h*.5);
+    return vec4(min(max(d.x,d.y),0.)+length(max(d,0.)),color);
+}
+
+// SDF sphere for the tree foliage
+vec4 sdfTreeFoliage(vec3 p,vec3 center,float r,vec3 color){
+    return vec4(length(p-center)-r,color);
+}
+
+// SDF for a torus
+vec4 sdfTorus(vec3 p,vec3 center,float r1,float r2,vec3 color){
+    vec2 q=vec2(length(p.xz-center.xz)-r1,p.y-center.y);
+    return vec4(length(q)-r2,color);
+}
+
+vec3 orbitingTorusPosition(float time){
+    float angle=time*.5;
+    float radius=1.;
+    vec3 center=vec3(0.,2.,0.);
+    vec3 pos=center+radius*vec3(cos(angle),0.,sin(angle));
+    return pos;
+}
+
+float smoothMin(float a,float b,float k){
+    float h=clamp(.5+.5*(b-a)/k,0.,1.);
+    return mix(b,a,h)-k*h*(1.-h);
+}
+
+vec4 blendSDFs(vec4 a,vec4 b,float k){
+    float blendedSDF=smoothMin(a.x,b.x,k);
+    return vec4(blendedSDF,a.yzw);
+}
+
+vec4 sdfTree(vec3 p){
+    float c=11.;
+    p.xz=mod(p.xz+.5*c,c)-.5*c;
+    
+    ivec2 cellIndex=ivec2(floor((p.xz+.5*c)/c));
+    
+    // Generate random values for height, trunk radius, and torus radius
+    float randomHeight=mix(2.,4.,random(vec2(cellIndex)));
+    float randomTrunkRadius=mix(.1,3.3,random(vec2(cellIndex+ivec2(1337,4242))));
+    float randomTorusRadius=mix(.1,.9,random(vec2(cellIndex+ivec2(2141,6879))));
+    
+    vec4 tree=minWithColor(
+        sdfTreeTrunk(p,vec3(0.,0.,0.),randomTrunkRadius,randomHeight,vec3(.4,.2,.1)),
+        sdfTreeFoliage(p,vec3(0.,randomHeight,0.),1.5,vec3(0.,.8,0.))
+    );
+    
+    vec3 torusCenter=orbitingTorusPosition(iTime);
+    vec4 torus=sdfTorus(p,torusCenter,1.,randomTorusRadius,vec3(.3,.6,1.));
+    
+    float blendSmoothness=.5;
+    
+    return blendSDFs(tree,torus,blendSmoothness);
+}
+
 vec4 sdScene(vec3 p){
     vec4 d=vec4(1e10,0.,0.,0.);
     
     d=minWithColor(d,sdfGround(p,-1.,vec3(.58,.29,0.)));
-    d=minWithColor(d,sdfCylinder(p,vec3(1.,-1.,0.),.3,6.,8.,vec3(.4,.2,.1)));
+    // d=minWithColor(d,sdfCylinder(p,vec3(1.,-1.,0.),.3,6.,8.,vec3(.4,.2,.1)));
+    
+    d=minWithColor(d,sdfTree(p));
     
     vec3 spherePos=movingSpherePosition(iTime);
     // vec3 spherePos=vec3(0.,1.,-4.);
@@ -281,16 +299,25 @@ void mainImage(out vec4 fragColor,in vec2 fragCoord)
     mouseUV-=.5;
     mouseUV.x*=2.;
     mouseUV.y*=.4;
-    mouseUV.y+=.1;
+    mouseUV.y+=.3;
     
     vec3 lp=vec3(0,.5,-4);// lookat point (aka camera target)
-    vec3 ro=vec3(0,5,0);// ray origin that represents camera position
+    // vec3 ro=vec3(0,5,0);// ray origin that represents camera position
+    
+    // Calculate time-dependent camera offset in x direction
+    float x_offset=4.*sin(iTime*.5);
+    
+    vec3 ro=vec3(
+        x_offset,
+        5.,
+        0.
+    );
     
     float cameraRadius=2.;
     ro.yz=ro.yz*cameraRadius*rotate2d(mix(PI/2.,0.,mouseUV.y));
     ro.xz=ro.xz*rotate2d(mix(-PI,PI,mouseUV.x))+vec2(lp.x,lp.z);
     
-    vec3 rd=camera(ro,lp)*normalize(vec3(uv,-1));// ray direction
+    vec3 rd=camera(ro,lp)*normalize(vec3(uv,-1.));// ray direction
     
     // vec3 ro=vec3(0.,0.,3.);
     // vec3 rd=normalize(vec3(uv,-1.));
