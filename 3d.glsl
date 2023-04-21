@@ -7,6 +7,22 @@ float sdSphere(vec3 p,vec3 offset,float r){
     return length(p-offset)-r;
 }
 
+mat2 Rot(float a){
+    float s=sin(a);
+    float c=cos(a);
+    return mat2(c,-s,s,c);
+}
+
+vec3 R(vec2 uv,vec3 p,vec3 l,float z){
+    vec3 f=normalize(l-p),
+    r=normalize(cross(vec3(0,1,0),f)),
+    u=cross(f,r),
+    c=p+f*z,
+    i=c+uv.x*r+uv.y*u,
+    d=normalize(i-p);
+    return d;
+}
+
 float sdBox(vec3 p,vec3 offset,float s){
     vec3 d=abs(p-offset)-s;
     return min(max(d.x,max(d.y,d.z)),0.)+length(max(d,0.));
@@ -81,10 +97,15 @@ void mainImage(out vec4 fragColor,in vec2 fragCoord)
 {
     vec2 uv=(fragCoord-.5*iResolution.xy)/iResolution.y;
     vec3 backgroundColor=vec3(.835,1,1);
+    vec2 m=iMouse.xy/iResolution.xy;
     
     vec3 col=vec3(0);
-    vec3 ro=vec3(0,0,3);// ray origin that represents camera position
-    vec3 rd=normalize(vec3(uv,-1));// ray direction
+    
+    vec3 ro=vec3(0,4,-5);
+    ro.yz*=Rot(-m.y+.4);
+    // ro.xz*=Rot(iTime*.2-m.x*6.2831);
+    
+    vec3 rd=R(uv,ro,vec3(0,0,0),.7);
     
     float d=rayMarch(ro,rd,MIN_DIST,MAX_DIST);// distance to sphere
     
