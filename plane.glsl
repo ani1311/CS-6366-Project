@@ -1,8 +1,44 @@
 
 #define EPISILON.0001
-#define MAX_STEPS 100
-#define MAX_DEPTH 200.
 const float PI=3.14159265359;
+const int MAX_MARCHING_STEPS=255;
+const float MIN_DIST=0.;
+const float MAX_DIST=100.;
+const float PRECISION=.001;
+
+struct Material{
+    vec3 ambientColor;// k_a * i_a
+    vec3 diffuseColor;// k_d * i_d
+    vec3 specularColor;// k_s * i_s
+    float alpha;// shininess
+};
+
+struct Surface{
+    int id;// id of object
+    float sd;// signed distance
+    Material mat;
+};
+
+Material materialWithColor(vec3 color){
+    return Material(color*.1,color*.6,color*.9,.1);
+}
+Material gold(){
+    vec3 aCol=.5*vec3(.7,.5,0);
+    vec3 dCol=.6*vec3(.7,.7,0);
+    vec3 sCol=.6*vec3(1,1,1);
+    float a=5.;
+    
+    return Material(aCol,dCol,sCol,a);
+}
+
+Material silver(){
+    vec3 aCol=.4*vec3(.8);
+    vec3 dCol=.5*vec3(.7);
+    vec3 sCol=.6*vec3(1,1,1);
+    float a=5.;
+    
+    return Material(aCol,dCol,sCol,a);
+}
 
 // Rotate around a circular path
 mat2 rotate2d(float theta){
@@ -101,59 +137,30 @@ float perlinNoise(vec2 p){
 
 // ----------------------------------------------------
 
-vec4 sdfGround(vec3 p,float h,vec3 baseColor){
-    float height=perlinNoise(7.*vec2(p.xz));
-    float displacement=height*.02;
+Surface sdfGround(vec3 p,float h,vec3 baseColor){
+    float height=perlinNoise(2.*vec2(p.xz*2.));
+    float displacement=height*.08;
     float d=p.y-h-displacement;
     
-    vec3 color=mix(vec3(.5,.25,.1),baseColor,height*.5+.5);
-    return vec4(d,color);
+    vec3 color=mix(vec3(1.,.8745,.3725),baseColor,height*.5+.5);
+    Material m=Material(color*.2,color*.01,color*.1,.1);
+    return Surface(0,d,m);
 }
 
-// vec4 sdfGround(vec3 p,float h,vec3 color){
-    
-    //     return vec4(p.y-h,color);
-// }
-
-vec4 sdfSphere(vec3 p,vec3 c,float r,vec3 color){
+Surface sdfSphere(vec3 p,vec3 c,float r,vec3 color){
     // color=vec3(perlinNoise(7.*vec2(p.xy)),perlinNoise(11.*vec2(p.xy)),perlinNoise(13.*vec2(p.xy)));
+    // Material m=materialWithColor(color);
+    Material m=gold();
     
-    return vec4(length(p-c)-r,color);
+    return Surface(1,length(p-c)-r,m);
 }
 
 float random(vec2 st){
     return fract(sin(dot(st.xy,vec2(12.9898,78.233)))*43758.5453123);
 }
 
-vec4 sdfCylinder(vec3 p,vec3 center,float r,float minHeight,float maxHeight,vec3 color){
-    float c=7.;
-    vec3 centered_p=p-center;
-    
-    ivec2 cellIndex=ivec2(floor((centered_p.xz+.5*c)/c));
-    vec2 rep_p_xz=mod(centered_p.xz+.5*c,c)-.5*c;
-    
-    // Calculate the random height for the current cylinder
-    float randomHeight=mix(minHeight,maxHeight,random(vec2(cellIndex)));
-    
-    centered_p.xz=rep_p_xz;
-    
-    // Flute parameters
-    int numFlutes=8;
-    float fluteRadius=r*.2;
-    float fluteAngle=2.*3.14159265359/float(numFlutes);
-    
-    // Calculate fluted radius
-    float angle=atan(centered_p.z,centered_p.x);
-    float fluteId=floor(angle/fluteAngle);
-    float localAngle=angle-fluteId*fluteAngle;
-    float localRadius=r-(1.-smoothstep(0.,fluteAngle*.5,abs(localAngle-fluteAngle*.5)))*fluteRadius;
-    
-    vec2 d=abs(vec2(length(vec2(centered_p.x,centered_p.z)),centered_p.y))-vec2(localRadius,randomHeight*.5);
-    return vec4(min(max(d.x,d.y),0.)+length(max(d,0.)),color);
-}
-
-vec4 minWithColor(vec4 a,vec4 b){
-    if(a.x<b.x){
+Surface minWithColor(Surface a,Surface b){
+    if(a.sd<b.sd){
         return a;
     }else{
         return b;
@@ -168,21 +175,25 @@ vec3 movingSpherePosition(float time){
 }
 
 // SDF cylinder for the tree trunk
-vec4 sdfTreeTrunk(vec3 p,vec3 center,float r,float h,vec3 color){
+Surface sdfTreeTrunk(vec3 p,vec3 center,float r,float h,vec3 color){
     vec3 centered_p=p-center;
     vec2 d=abs(vec2(length(centered_p.xz),centered_p.y))-vec2(r,h*.5);
-    return vec4(min(max(d.x,d.y),0.)+length(max(d,0.)),color);
+    Material m=materialWithColor(color);
+    return Surface(1,min(max(d.x,d.y),0.)+length(max(d,0.)),m);
 }
 
 // SDF sphere for the tree foliage
-vec4 sdfTreeFoliage(vec3 p,vec3 center,float r,vec3 color){
-    return vec4(length(p-center)-r,color);
+Surface sdfTreeFoliage(vec3 p,vec3 center,float r,vec3 color){
+    // return vec4(length(p-center)-r,color);
+    Material m=materialWithColor(color);
+    return Surface(2,length(p-center)-r,m);
 }
 
 // SDF for a torus
-vec4 sdfTorus(vec3 p,vec3 center,float r1,float r2,vec3 color){
+Surface sdfTorus(vec3 p,vec3 center,float r1,float r2,vec3 color){
     vec2 q=vec2(length(p.xz-center.xz)-r1,p.y-center.y);
-    return vec4(length(q)-r2,color);
+    Material m=materialWithColor(color);
+    return Surface(3,length(q)-r2,m);
 }
 
 vec3 orbitingTorusPosition(float time){
@@ -198,12 +209,12 @@ float smoothMin(float a,float b,float k){
     return mix(b,a,h)-k*h*(1.-h);
 }
 
-vec4 blendSDFs(vec4 a,vec4 b,float k){
-    float blendedSDF=smoothMin(a.x,b.x,k);
-    return vec4(blendedSDF,a.yzw);
+Surface blendSDFs(Surface a,Surface b,float k){
+    float blendedSDF=smoothMin(a.sd,b.sd,k);
+    return Surface(4,blendedSDF,a.mat);
 }
 
-vec4 sdfTree(vec3 p){
+Surface sdfTree(vec3 p){
     float c=11.;
     p.xz=mod(p.xz+.5*c,c)-.5*c;
     
@@ -214,21 +225,23 @@ vec4 sdfTree(vec3 p){
     float randomTrunkRadius=mix(.1,3.3,random(vec2(cellIndex+ivec2(1337,4242))));
     float randomTorusRadius=mix(.1,.9,random(vec2(cellIndex+ivec2(2141,6879))));
     
-    vec4 tree=minWithColor(
+    Surface tree=minWithColor(
         sdfTreeTrunk(p,vec3(0.,0.,0.),randomTrunkRadius,randomHeight,vec3(.4,.2,.1)),
         sdfTreeFoliage(p,vec3(0.,randomHeight,0.),1.5,vec3(0.,.8,0.))
     );
     
     vec3 torusCenter=orbitingTorusPosition(iTime);
-    vec4 torus=sdfTorus(p,torusCenter,1.,randomTorusRadius,vec3(.3,.6,1.));
+    Surface torus=sdfTorus(p,torusCenter,1.,randomTorusRadius,vec3(.3,.6,1.));
     
     float blendSmoothness=.5;
     
-    return blendSDFs(tree,torus,blendSmoothness);
+    Surface res=blendSDFs(tree,torus,blendSmoothness);
+    
+    return res;
 }
 
-vec4 sdScene(vec3 p){
-    vec4 d=vec4(1e10,0.,0.,0.);
+Surface sdScene(vec3 p){
+    Surface d=sdfGround(p,0.,vec3(.58,.29,0.));
     
     d=minWithColor(d,sdfGround(p,-1.,vec3(.58,.29,0.)));
     // d=minWithColor(d,sdfCylinder(p,vec3(1.,-1.,0.),.3,6.,8.,vec3(.4,.2,.1)));
@@ -239,36 +252,35 @@ vec4 sdScene(vec3 p){
     // vec3 spherePos=vec3(0.,1.,-4.);
     float sphereRadius=.7;
     
-    vec4 sphere=sdfSphere(p,spherePos,sphereRadius,vec3(1.,0.,0.));
+    Surface sphere=sdfSphere(p,spherePos,sphereRadius,vec3(1.,0.,0.));
     
     d=minWithColor(d,sphere);
     
     return d;
 }
 
-vec4 rayMarch(vec3 ro,vec3 rd,float start,float end){
-    float t=start;
-    vec4 co;
-    for(int i=0;i<MAX_STEPS;i++){
-        co=sdScene(ro+rd*t);
-        
-        t+=co.x;
-        if(co.x<EPISILON||t>end){
-            break;
-        }
-        
+Surface rayMarch(vec3 ro,vec3 rd){
+    float depth=MIN_DIST;
+    Surface co;
+    
+    for(int i=0;i<MAX_MARCHING_STEPS;i++){
+        vec3 p=ro+depth*rd;
+        co=sdScene(p);
+        depth+=co.sd;
+        if(co.sd<PRECISION||depth>MAX_DIST)break;
     }
     
-    return vec4(t,co.yzw);
+    co.sd=depth;
+    
+    return co;
 }
-
-vec3 calcNormal(in vec3 p){
-    vec2 e=vec2(1.,-1.)*EPISILON;// epsilon
+vec3 calcNormal(vec3 p){
+    vec2 e=vec2(1.,-1.)*.0005;
     return normalize(
-        e.xyy*sdScene(p+e.xyy).x+
-        e.yyx*sdScene(p+e.yyx).x+
-        e.yxy*sdScene(p+e.yxy).x+
-        e.xxx*sdScene(p+e.xxx).x
+        e.xyy*sdScene(p+e.xyy).sd+
+        e.yyx*sdScene(p+e.yyx).sd+
+        e.yxy*sdScene(p+e.yxy).sd+
+        e.xxx*sdScene(p+e.xxx).sd
     );
 }
 
@@ -290,6 +302,21 @@ mat3 camera(vec3 cameraPos,vec3 lookAtPoint){
     return mat3(-cr,cu,-cd);
 }
 
+vec3 phong(vec3 lightDir,vec3 normal,vec3 rd,Material mat){
+    // ambient
+    vec3 ambient=mat.ambientColor;
+    
+    // diffuse
+    float dotLN=clamp(dot(lightDir,normal),0.,1.);
+    vec3 diffuse=mat.diffuseColor*dotLN;
+    
+    // specular
+    float dotRV=clamp(dot(reflect(lightDir,normal),-rd),0.,1.);
+    vec3 specular=mat.specularColor*pow(dotRV,mat.alpha);
+    
+    return ambient+diffuse+specular;
+}
+
 void mainImage(out vec4 fragColor,in vec2 fragCoord)
 {
     // Normalized pixel coordinates (from 0 to 1)
@@ -305,7 +332,7 @@ void mainImage(out vec4 fragColor,in vec2 fragCoord)
     // vec3 ro=vec3(0,5,0);// ray origin that represents camera position
     
     // Calculate time-dependent camera offset in x direction
-    float x_offset=4.*sin(iTime*.5);
+    float x_offset=4.*sin(iTime*.5)+2.;
     
     vec3 ro=vec3(
         x_offset,
@@ -322,7 +349,7 @@ void mainImage(out vec4 fragColor,in vec2 fragCoord)
     // vec3 ro=vec3(0.,0.,3.);
     // vec3 rd=normalize(vec3(uv,-1.));
     
-    vec4 co=rayMarch(ro,rd,0.,MAX_DEPTH);
+    Surface co=rayMarch(ro,rd);
     
     // Calculate fractal noise for the sky
     float skyNoise=fractalNoise(uv*10.);
@@ -330,17 +357,30 @@ void mainImage(out vec4 fragColor,in vec2 fragCoord)
     
     vec3 bgCol=vec3(1.,1.,1.);
     vec3 col=vec3(0.);
-    if(co.x>=MAX_DEPTH){
+    if(co.sd>=MAX_DIST){
         col=skyColor;
         
     }else{
-        vec3 p=ro+rd*co.x;
+        vec3 p=ro+rd*co.sd;
         vec3 n=calcNormal(p);
-        vec3 lightPos=vec3(2.,2.,7.);
-        vec3 lightDir=normalize(lightPos-p);
-        float diff=max(0.,dot(n,lightDir));
         
-        col=co.yzw*diff+.1*bgCol;
+        // light #1
+        vec3 lightPosition1=vec3(-8,-6,-5);
+        vec3 lightDirection1=normalize(lightPosition1-p);
+        float lightIntensity1=.9;
+        
+        // light #2
+        vec3 lightPosition2=vec3(1,1,1);
+        vec3 lightDirection2=normalize(lightPosition2-p);
+        float lightIntensity2=.5;
+        
+        // final color of object
+        col=lightIntensity1*phong(lightDirection1,n,rd,co.mat);
+        col+=lightIntensity2*phong(lightDirection2,n,rd,co.mat);
+        
+        // float diff=max(0.,dot(n,lightDir));
+        
+        // col=co.yzw*diff+.1*bgCol;
     }
     
     // Output to screen
